@@ -45,46 +45,60 @@ package object barneshut {
 
   case class Empty(centerX: Float, centerY: Float, size: Float) extends Quad {
     def massX: Float = centerX
+
     def massY: Float = centerY
+
     def mass: Float = 0
+
     def total: Int = 0
+
     def insert(b: Body): Quad = Leaf(centerX, centerY, size, Seq(b))
   }
 
-  case class Fork(
-    nw: Quad, ne: Quad, sw: Quad, se: Quad
-  ) extends Quad {
+  case class Fork(nw: Quad, ne: Quad, sw: Quad, se: Quad) extends Quad {
     val centerX: Float = nw.centerX + nw.size / 2
     val centerY: Float = nw.centerY + nw.size / 2
     val size: Float = nw.size + ne.size
     val mass: Float = nw.mass + ne.mass + sw.mass + se.mass
-    val massX: Float = (nw.mass * nw.massX + ne.mass * ne.massX + sw.mass * sw.massX + se.mass * se.massX) / mass
-    val massY: Float = (nw.mass * nw.massY + ne.mass * ne.massY + sw.mass * sw.massY + se.mass * se.massY) / mass
+
+    val massX: Float =
+      if (mass == 0) centerX
+      else (nw.mass * nw.massX + ne.mass * ne.massX + sw.mass * sw.massX + se.mass * se.massX) / mass
+
+    val massY: Float =
+      if (mass == 0) centerY
+      else (nw.mass * nw.massY + ne.mass * ne.massY + sw.mass * sw.massY + se.mass * se.massY) / mass
+
     val total: Int = nw.total + ne.total + sw.total + se.total
 
     def insert(b: Body): Fork = {
-      Fork(nw.insert(b), ne.insert(b), sw.insert(b), se.insert(b)) //TODO: maybe we need to check. b.x & b.y
+      if (b.x < centerX) {
+        if (b.y < centerY) Fork(nw.insert(b), ne, sw, se)
+        else Fork(nw, ne, sw.insert(b), se)
+
+      } else if (b.y < centerY) Fork(nw, ne.insert(b), sw, se)
+      else Fork(nw, ne, sw, se.insert(b))
     }
   }
 
   case class Leaf(centerX: Float, centerY: Float, size: Float, bodies: Seq[Body])
-  extends Quad {
-    val (mass, massX, massY) = (totalMass : Float, _massX : Float, _massY : Float)
+    extends Quad {
+    val mass = bodies.map(_.mass).sum
+    val massX = bodies.foldLeft(0f)((a, b) => a + b.mass * b.x) / mass
+    val massY = bodies.foldLeft(0f)((a, b) => a + b.mass * b.y) / mass
+    val total = bodies.length
 
-    def totalMass: Float = bodies.foldLeft(0f)(_ + _.mass)
-
-    def _massX: Float = bodies.foldLeft(0f)((a, b) => a + b.mass * b.x) / totalMass
-    def _massY: Float = bodies.foldLeft(0f)((a, b) => a + b.mass * b.y) / totalMass
-
-    val total: Int = bodies.length
     def insert(b: Body): Quad = {
       if (size > minimumSize) {
-        def e = Empty(centerX, centerY, size)
+        val nw = Empty(centerX - size / 4, centerY - size / 4, size / 2)
+        val ne = Empty(centerX + size / 4, centerY - size / 4, size / 2)
+        val sw = Empty(centerX - size / 4, centerY + size / 4, size / 2)
+        val se = Empty(centerX + size / 4, centerY + size / 4, size / 2)
         bodies
-          .foldLeft(Fork(e, e, e, e))((q, b) => q.insert(b))
+          .foldLeft(Fork(nw, ne, sw, se))((q, b) => q.insert(b))
           .insert(b)
       } else
-        Leaf(centerX, centerY, size, bodies :+ b.updated(this))
+        Leaf(centerX, centerY, size, bodies :+ b)
     }
   }
 
@@ -134,7 +148,7 @@ package object barneshut {
 
       def traverse(quad: Quad): Unit = (quad: Quad) match {
         case Empty(_, _, _) =>
-          // no force
+        // no force
         case Leaf(_, _, _, bodies) =>
           // add force contribution of each body by calling addForce
           bodies.foreach(b => addForce(b.mass, b.x, b.y))
@@ -180,7 +194,7 @@ package object barneshut {
 
       val x = index(b.x, boundaries.minX, boundaries.maxX)
       val y = index(b.y, boundaries.minY, boundaries.maxY)
-      this(x, y).+=(b)
+      this (x, y) += b
 
       this
     }
@@ -190,7 +204,7 @@ package object barneshut {
     def combine(that: SectorMatrix): SectorMatrix = {
       val combined = new SectorMatrix(boundaries, sectorPrecision)
 
-      for(i <- matrix.indices) {
+      for (i <- matrix.indices) {
         combined.matrix(i) = matrix(i).combine(that.matrix(i))
       }
 
@@ -205,7 +219,7 @@ package object barneshut {
           val centerX = boundaries.minX + x * sectorSize + sectorSize / 2
           val centerY = boundaries.minY + y * sectorSize + sectorSize / 2
           var emptyQuad: Quad = Empty(centerX, centerY, sectorSize)
-          val sectorBodies = this(x, y)
+          val sectorBodies = this (x, y)
           sectorBodies.foldLeft(emptyQuad)(_ insert _)
         } else {
           val nspan = span / 2
@@ -237,7 +251,7 @@ package object barneshut {
 
     def clear() = timeMap.clear()
 
-    def timed[T](title: String)(body: =>T): T = {
+    def timed[T](title: String)(body: => T): T = {
       var res: T = null.asInstanceOf[T]
       val totalTime = /*measure*/ {
         val startTime = System.currentTimeMillis()
